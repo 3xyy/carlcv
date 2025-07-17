@@ -1,10 +1,12 @@
 import cv2
 import numpy as np
-import pygame
 
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+import random as rand
+
+from sympy import false
 
 import mpVisualizers as mpVis
 
@@ -14,6 +16,15 @@ base_options = python.BaseOptions(model_asset_path=modelPath)
 options = vision.HandLandmarkerOptions(base_options=base_options,
                                        num_hands=2)
 detector = vision.HandLandmarker.create_from_options(options)
+
+# Constants
+NON_PINKY_DIST = 0.3
+PINKY_DIST = 0.25
+POSSIBLE_FINGERS = {"RPo", "RM", "RR", "RPi", "LPo", "LM", "LR", "LPi"}
+
+fingers = set()
+keys_to_press = rand.sample(list(POSSIBLE_FINGERS), rand.randint(1, 3))
+completed = False
 
 # Set up camera
 cap = cv2.VideoCapture(0)
@@ -28,11 +39,86 @@ while True:
     detect_result = detector.detect(mp_image)
     # print(detect_result)
 
-    # TODO: Add code here to detect keypoints
-    
+    if completed:
+        keys_to_press = rand.sample(list(POSSIBLE_FINGERS), rand.randint(1, 3))
+    else:
+        print("KEYS TO PRESS:", keys_to_press)
 
+    Rwrist, Rfinger1, Rfinger2, Rfinger3, Rfinger4, Rfinger5 = None, None, None, None, None, None
+    if len(detect_result.hand_landmarks) > 0:
+        # print(detect_result.hand_landmarks[0][0])
+        Rwrist = detect_result.hand_landmarks[0][0].y
+        Rfinger1 = abs(Rwrist - detect_result.hand_landmarks[0][4].y)
+        Rfinger2 = abs(Rwrist - detect_result.hand_landmarks[0][8].y)
+        Rfinger3 = abs(Rwrist - detect_result.hand_landmarks[0][12].y)
+        Rfinger4 = abs(Rwrist - detect_result.hand_landmarks[0][16].y)
+        Rfinger5 = abs(Rwrist - detect_result.hand_landmarks[0][20].y)
+
+    Lwrist, Lfinger1, Lfinger2, Lfinger3, Lfinger4, Lfinger5 = None, None, None, None, None, None
+    if len(detect_result.hand_landmarks) > 1:
+        Lwrist = detect_result.hand_landmarks[1][0].y
+        Lfinger1 = abs(Lwrist - detect_result.hand_landmarks[1][4].y)
+        Lfinger2 = abs(Lwrist - detect_result.hand_landmarks[1][8].y)
+        Lfinger3 = abs(Lwrist - detect_result.hand_landmarks[1][12].y)
+        Lfinger4 = abs(Lwrist - detect_result.hand_landmarks[1][16].y)
+        Lfinger5 = abs(Lwrist - detect_result.hand_landmarks[1][20].y)
+
+    if Rfinger2 is not None:
+        if Rfinger2 < NON_PINKY_DIST:
+            fingers.add("RPo")
+        else:
+            fingers.discard("RPo")
+    if Rfinger3 is not None:
+        if Rfinger3 < NON_PINKY_DIST:
+            fingers.add("RM")
+        else:
+            fingers.discard("RM")
+    if Rfinger4 is not None:
+        if Rfinger4 < NON_PINKY_DIST:
+            fingers.add("RR")
+        else:
+            fingers.discard("RR")
+    if Rfinger5 is not None:
+        if Rfinger5 < PINKY_DIST:
+            fingers.add("RPi")
+        else:
+            fingers.discard("RPi")
+    if Lfinger2 is not None:
+        if Lfinger2 < NON_PINKY_DIST:
+            fingers.add("LPo")
+        else:
+            fingers.discard("LPo")
+    if Lfinger3 is not None:
+        if Lfinger3 < NON_PINKY_DIST:
+            fingers.add("LM")
+        else:
+            fingers.discard("LM")
+    if Lfinger4 is not None:
+        if Lfinger4 < NON_PINKY_DIST:
+            fingers.add("LR")
+        else:
+            fingers.discard("LR")
+    if Lfinger5 is not None:
+        if Lfinger5 < PINKY_DIST:
+            fingers.add("LPi")
+        else:
+            fingers.discard("LPi")
+    if fingers:
+        print(fingers)
+
+    all_pressed = True
+    for key in keys_to_press:
+        if key not in fingers:
+            all_pressed = false
+
+    completed = all_pressed
+
+    # print("Right Pointer", Rfinger2, "Right Mid", Rfinger3, "Right Ring", Rfinger4, "Right Pinky", Rfinger5)
+    # print("Left Pointer", Lfinger2, "Left Pointer", Lfinger3, "Left Ring", Lfinger4, "Left Pinky", Lfinger5)
     annot_image = mpVis.visualizeHandSkeleton(mp_image.numpy_view(), detect_result)
     vis_image = cv2.cvtColor(annot_image, cv2.COLOR_RGB2BGR)
+    vis_image = cv2.putText(vis_image, "EE", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 4,
+                            cv2.LINE_AA)
     cv2.imshow("Detected", vis_image)
 
     x = cv2.waitKey(30)
