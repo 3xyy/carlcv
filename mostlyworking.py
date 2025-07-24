@@ -10,40 +10,33 @@ import random as rand
 from sympy import false
 import mpVisualizers as mpVis
 
-# Dimentions of the game
 WIDTH = 1750
 HEIGHT = 1000
 MARGIN = 150
-FPS = 240  # Increased FPS cap for faster systems
-TILE_SPEED = 4  # Increased for smoother/faster fall, adjust as needed
+FPS = 240  
+TILE_SPEED = 10 
 
-# Pygame screen
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.DOUBLEBUF | pygame.SCALED)
 pygame.display.set_caption("Testing")
 pygame.init()
 
-# Set up model
 modelPath = "hand_landmarker.task"
 base_options = python.BaseOptions(model_asset_path=modelPath)
 options = vision.HandLandmarkerOptions(base_options=base_options,
                                        num_hands=2)
 detector = vision.HandLandmarker.create_from_options(options)
 
-# Constants
 NON_PINKY_DIST = 0.3
 PINKY_DIST = 0.25
 POSSIBLE_FINGERS = {"RPo", "RM", "RR", "RPi", "LPo", "LM", "LR", "LPi"}
-PRESS_THRESH = 500 # When the rectangles pass this y value, they are able to be pressed
+PRESS_THRESH = 500
 
-# Variables to control fingers and points
 fingers = set()
 keys_to_press = set()
 completed = False
 total_points = 0
 
-# Set up camera
 cap = cv2.VideoCapture(0)
-# Try to maximize camera FPS and minimize lag
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 cap.set(cv2.CAP_PROP_FPS, 60)
 
@@ -83,31 +76,20 @@ class Button:
 # Class rectangle used to represent tiles on the screen
 class Rectangle:
     def __init__(self):
-        # Width, height, lane, top left x and y of the rectangle
         self.w = (WIDTH - 2*MARGIN) / 8
         self.h = self.w * 3 / 2
         self.color = (0, 0, 0)
-
-        # Randomly generated
         self.lane = random.randint(1, 8)
-
-        # Formatting based on margin
         self.x = int((self.lane - 1) * self.w + MARGIN)
         self.y = int(-1 * self.h)
         self.last_update_time = pygame.time.get_ticks()
 
-    # Method to update position of tiles each frame
     def update(self):
-        # Use time-based movement for smoothness
-        now = pygame.time.get_ticks()
-        dt = (now - self.last_update_time) / 1000.0  # seconds
-        self.last_update_time = now
-        self.y += TILE_SPEED * dt * 60  # 60 is a base FPS multiplier for smoothness
+        self.y += TILE_SPEED
+        self.last_update_time = pygame.time.get_ticks()
 
-        # If the tile is within a small margin of the activation threshold
         if PRESS_THRESH - 5 < self.y < PRESS_THRESH + 5:
 
-            # Base on lane number, add the finger and its corresponding rectangle
             if self.lane == 1:
                 keys_to_press.add(("LPi", self))
             elif self.lane == 2:
@@ -125,7 +107,6 @@ class Rectangle:
             elif self.lane == 8:
                 keys_to_press.add(("RPi", self))
 
-        # Once keys are pas the end, remove them from the list
         if self.y > HEIGHT:
             if self.lane == 1:
                 keys_to_press.discard(("LPi", self))
@@ -181,35 +162,41 @@ class Piano:
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image)
         detect_result = detector.detect(mp_image)
-        height, width = frame.shape[:2]
+        height = frame.shape[0]
+        width = frame.shape[1]
         mask = np.zeros((height, width), dtype=np.uint8)
-        exclude_indices = set([1,2,3,4])
-        all_indices = set(range(21))
-        mask_indices = sorted(list(all_indices - exclude_indices))
+        exclude_indices = set([1, 2, 3, 4])
+        all_indices = set()
+        for i in range(21):
+            all_indices.add(i)
+        mask_indices = list(all_indices - exclude_indices)
+        mask_indices.sort()
         circle_radius = 16
+        palm_circle_radius = 60
         handedness = detect_result.handedness
         leftHand = None
         rightHand = None
         for i in range(len(handedness)):
-            if handedness[i][0].category_name == "Left" and leftHand is None:
-                leftHand = i
-            elif handedness[i][0].category_name == "Right" and rightHand is None:
-                rightHand = i
+            if handedness[i][0].category_name == "Left":
+                if leftHand is None:
+                    leftHand = i
+            elif handedness[i][0].category_name == "Right":
+                if rightHand is None:
+                    rightHand = i
         def mask_hand(hand_landmarks):
-            wrist = hand_landmarks[0]
-            wx, wy = int(wrist.x * width), int(wrist.y * height)
-            wx_m, wy_m = width - wx, wy
-            tip_indices = [8, 12, 16, 20]
-            for tip_idx in tip_indices:
-                tip = hand_landmarks[tip_idx]
-                tx, ty = int(tip.x * width), int(tip.y * height)
-                tx_m, ty_m = width - tx, ty
-                cv2.line(mask, (tx_m, ty_m), (wx_m, wy_m), 255, circle_radius*2)
+            wx = int(hand_landmarks[0].x * width)
+            wy = int(hand_landmarks[0].y * height)
+            bx = int(hand_landmarks[9].x * width)
+            by = int(hand_landmarks[9].y * height)
+            palm_x = int((wx + bx) / 2)
+            palm_y = int((wy + by) / 2)
+            cv2.circle(mask, (width - palm_x, palm_y), palm_circle_radius, 255, -1)
+            for tip_idx in [8, 12, 16, 20]:
+                tx = int(hand_landmarks[tip_idx].x * width)
+                ty = int(hand_landmarks[tip_idx].y * height)
+                cv2.line(mask, (width - tx, ty), (width - wx, wy), 255, circle_radius * 2)
             for idx in mask_indices:
-                pt = hand_landmarks[idx]
-                x, y = int(pt.x * width), int(pt.y * height)
-                x_mirrored = width - x
-                cv2.circle(mask, (x_mirrored, y), circle_radius, (255), -1)
+                cv2.circle(mask, (width - int(hand_landmarks[idx].x * width), int(hand_landmarks[idx].y * height)), circle_radius, 255, -1)
         if rightHand is not None:
             mask_hand(detect_result.hand_landmarks[rightHand])
         if leftHand is not None:
@@ -217,8 +204,8 @@ class Piano:
         frame_mirrored = cv2.flip(frame, 1)
         hands_only = cv2.cvtColor(frame_mirrored, cv2.COLOR_BGR2RGB)
         rgba = np.zeros((height, width, 4), dtype=np.uint8)
-        rgba[..., :3] = hands_only
-        rgba[..., 3] = mask
+        rgba[:, :, 0:3] = hands_only
+        rgba[:, :, 3] = mask
         if (width, height) != (WIDTH, HEIGHT):
             rgba = cv2.resize(rgba, (WIDTH, HEIGHT))
         surface = pygame.image.frombuffer(rgba.tobytes(), (WIDTH, HEIGHT), 'RGBA')
@@ -302,7 +289,6 @@ class Piano:
 
     def run(self):
         global running, rectangles, total_points
-        # --- Begin code from pygame_processes ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -327,8 +313,6 @@ class Piano:
         text_rect = text_surface.get_rect()
         text_rect.center = (60, 50)
         screen.blit(text_surface, text_rect)
-        # --- End code from pygame_processes ---
-        # Always update overlay and detection every frame
         self.update_hand_overlay()
         frame = self.last_frame
         detect_result = self.last_detect_result
@@ -365,7 +349,6 @@ class Game:
                     pygame.quit()
                     sys.exit()
             self.states[self.gameStateManager.get_state()].run()
-            # Use a high FPS cap, but let vsync handle smoothness
             self.clock.tick(240)
 
 class Credits:
