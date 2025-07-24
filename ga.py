@@ -325,18 +325,24 @@ class Piano:
                              (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, HEIGHT))
         put_new = False
         cur_time = time.time()
-        if round(cur_time - self.start_time, 1) == self.times[self.cur_note]:
-            print(round(cur_time - self.start_time, 1))
-            print("NEW TILE")
-            put_new = True
-            self.cur_note+=3
-        if put_new:
-            put_new = False
-            r = Rectangle()
-            rectangles.append(r)
-        for rect in rectangles:
-            rect.update()
-            rect.draw(self.screen)
+        if self.cur_note < len(self.times):
+            if round(cur_time - self.start_time, 1) == self.times[self.cur_note]:
+                print(round(cur_time - self.start_time, 1))
+                print("NEW TILE")
+                put_new = True
+                self.cur_note+=3
+            if put_new:
+                put_new = False
+                r = Rectangle()
+                rectangles.append(r)
+            for rect in rectangles:
+                rect.update()
+                rect.draw(self.screen)
+        else:
+            end_text = font.render("GAME OVER!!! RETURN TO START", True, (255, 0, 0))
+            end_rect = end_text.get_rect()
+            end_rect.center = (700, 50)
+            screen.blit(end_text, end_rect)
         text_surface = font.render(f"SCORE: {total_points}", True, (0, 0, 0))
         text_rect = text_surface.get_rect()
         text_rect.center = (60, 50)
