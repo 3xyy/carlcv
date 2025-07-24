@@ -178,6 +178,7 @@ class Piano:
         ret, frame = cap.read()
         if not ret:
             return
+        fingers.clear()
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image)
         detect_result = detector.detect(mp_image)
