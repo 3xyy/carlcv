@@ -205,7 +205,8 @@ class Piano:
         hands_only = cv2.cvtColor(frame_mirrored, cv2.COLOR_BGR2RGB)
         rgba = np.zeros((height, width, 4), dtype=np.uint8)
         rgba[:, :, 0:3] = hands_only
-        rgba[:, :, 3] = mask
+        alpha_mask = (mask * 0.8).astype(np.uint8)
+        rgba[:, :, 3] = alpha_mask
         if (width, height) != (WIDTH, HEIGHT):
             rgba = cv2.resize(rgba, (WIDTH, HEIGHT))
         surface = pygame.image.frombuffer(rgba.tobytes(), (WIDTH, HEIGHT), 'RGBA')
@@ -426,5 +427,3 @@ class GameStateManager:
 if __name__ == '__main__':
     game = Game()
     game.run()
-
-
