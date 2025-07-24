@@ -425,10 +425,15 @@ class Start:
                                                                    (self.quit_image.get_width() / 2,
                                                                     self.quit_image.get_height() / 2)))
 
+        self.logo_image = pygame.image.load("LOGO.png").convert_alpha()
+        self.logo_image = pygame.transform.scale(self.logo_image,
+                                                 (self.logo_image.get_width() * 2,
+                                                  self.logo_image.get_height() * 2))
+
     def run(self):
         # print("START RUNNING")
         self.display.blit(self.background, (0, 0))
-
+        self.display.blit(self.logo_image, (800, 100))
         self.start_button.draw(self.display)
         self.credits_button.draw(self.display)
         self.quit_button.draw(self.display)
