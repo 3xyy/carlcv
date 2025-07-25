@@ -12,6 +12,8 @@ import json
 import random as rand
 from sympy import false
 import mpVisualizers as mpVis
+import pygame.mixer
+import pygame.midi
 
 WIDTH = 1750
 HEIGHT = 1000
@@ -22,12 +24,11 @@ TILE_SPEED = 10
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.DOUBLEBUF | pygame.SCALED)
 pygame.display.set_caption("Testing")
 pygame.init()
-
-modelPath = "hand_landmarker.task"
-base_options = python.BaseOptions(model_asset_path=modelPath)
-options = vision.HandLandmarkerOptions(base_options=base_options,
-                                       num_hands=2)
-detector = vision.HandLandmarker.create_from_options(options)
+pygame.mixer.init()
+pygame.midi.init()
+midi_player = pygame.midi.Output(0)
+MIDI_VELOCITY = 127
+MIDI_DURATION_MS = 200
 
 NON_PINKY_DIST = 0.3
 PINKY_DIST = 0.25
@@ -38,10 +39,6 @@ fingers = set()
 keys_to_press = set()
 completed = False
 total_points = 0
-
-cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-cap.set(cv2.CAP_PROP_FPS, 60)
 
 # Fonts
 font = pygame.font.SysFont("Arial", 24)
@@ -55,24 +52,46 @@ running = True
 
 
 class Button:
-    def __init__(self, x, y, img):
+    def __init__(self, x, y, img, width=None, height=None, bg_color=(220,220,220), border_color=(0,0,0), border_radius=15, padding=20):
         self.top_left = (x, y)
         self.img = img
-        self.rect = self.img.get_rect()
-        self.rect.topleft = (x, y)
         self.clicked = False
+        self.bg_color = bg_color
+        self.border_color = border_color
+        self.border_radius = border_radius
+        self.padding = padding
+        # If width/height not given, use img size + padding
+        if width is None:
+            width = img.get_width() + 2 * padding
+        if height is None:
+            height = img.get_height() + 2 * padding
+        self.rect = pygame.Rect(x, y, width, height)
+        self.img_pos = (x + (width - img.get_width()) // 2, y + (height - img.get_height()) // 2)
 
     def draw(self, screen):
         pos = pygame.mouse.get_pos()
-
-        if self.rect.collidepoint(pos):
-            if pygame.mouse.get_pressed()[0] == 1:
+        mouse_over = self.rect.collidepoint(pos)
+        # Change color on hover
+        color = (200, 200, 255) if mouse_over else self.bg_color
+        pygame.draw.rect(screen, color, self.rect, border_radius=self.border_radius)
+        pygame.draw.rect(screen, self.border_color, self.rect, 3, border_radius=self.border_radius)
+        screen.blit(self.img, self.img_pos)
+        # Only register click on mouse button down, not while held
+        if mouse_over:
+            if pygame.mouse.get_pressed()[0] == 1 and not getattr(self, '_was_down', False):
                 self.clicked = True
+                self._was_down = True
                 print("CLICKED")
-        screen.blit(self.img, (self.rect.x, self.rect.y))
+            elif pygame.mouse.get_pressed()[0] == 0:
+                self._was_down = False
+        else:
+            self._was_down = False
 
     def is_clicked(self):
-        return self.clicked
+        if self.clicked:
+            self.clicked = False
+            return True
+        return False
 
     def reset(self):
         self.clicked = False
@@ -80,55 +99,51 @@ class Button:
 
 # Class rectangle used to represent tiles on the screen
 class Rectangle:
-    def __init__(self):
+    def __init__(self, lane=None, midi_note=None):
         self.w = (WIDTH - 2 * MARGIN) / 8
-        self.h = self.w * 3 / 2
+        # Make all blocks large and easy to see
+        self.h = self.w * 2
         self.color = (0, 0, 0)
-        self.lane = random.randint(1, 8)
+        if lane is not None:
+            self.lane = lane
+        else:
+            self.lane = random.randint(1, 8)
         self.x = int((self.lane - 1) * self.w + MARGIN)
         self.y = int(-1 * self.h)
         self.last_update_time = pygame.time.get_ticks()
+        self.midi_note = midi_note  # Use pitch from song.json
+        self.hit = False  # Track if this tile has been hit
 
     def update(self):
         self.y += TILE_SPEED
         self.last_update_time = pygame.time.get_ticks()
-
+        # Prevent consecutive tiles in the same lane from being tied together
+        # Only add to keys_to_press if there is no other active tile in the same lane at the press line
         if PRESS_THRESH - 5 < self.y < PRESS_THRESH + 5:
-
+            lane_finger = None
             if self.lane == 1:
-                keys_to_press.add(("LPi", self))
+                lane_finger = "LPi"
             elif self.lane == 2:
-                keys_to_press.add(("LR", self))
+                lane_finger = "LR"
             elif self.lane == 3:
-                keys_to_press.add(("LM", self))
+                lane_finger = "LM"
             elif self.lane == 4:
-                keys_to_press.add(("LPo", self))
+                lane_finger = "LPo"
             elif self.lane == 5:
-                keys_to_press.add(("RPo", self))
+                lane_finger = "RPo"
             elif self.lane == 6:
-                keys_to_press.add(("RM", self))
+                lane_finger = "RM"
             elif self.lane == 7:
-                keys_to_press.add(("RR", self))
+                lane_finger = "RR"
             elif self.lane == 8:
-                keys_to_press.add(("RPi", self))
-
+                lane_finger = "RPi"
+            # Check if another tile in the same lane is already active at the press line
+            already_active = any(key[0] == lane_finger and not key[1].hit for key in keys_to_press)
+            if lane_finger and not already_active:
+                keys_to_press.add((lane_finger, self))
         if self.y > HEIGHT:
-            if self.lane == 1:
-                keys_to_press.discard(("LPi", self))
-            elif self.lane == 2:
-                keys_to_press.discard(("LR", self))
-            elif self.lane == 3:
-                keys_to_press.discard(("LM", self))
-            elif self.lane == 4:
-                keys_to_press.discard(("LPo", self))
-            elif self.lane == 5:
-                keys_to_press.discard(("RPo", self))
-            elif self.lane == 6:
-                keys_to_press.discard(("RM", self))
-            elif self.lane == 7:
-                keys_to_press.discard(("RR", self))
-            elif self.lane == 8:
-                keys_to_press.discard(("RPi", self))
+            # Do not reset hit status when the tile goes off-screen
+            pass
 
     # Method to draw tiles and lines on the pygame screen
     def draw(self, surface):
@@ -148,6 +163,10 @@ class Rectangle:
     def set_color(self, color):
         self.color = color
 
+    def can_be_hit(self):
+        # Only allow hit if the tile is below the PRESS_THRESH line
+        return self.y >= PRESS_THRESH
+
 
 class Piano:
     def __init__(self, display, gameStateManager):
@@ -163,24 +182,54 @@ class Piano:
         self.last_frame = None
         self.last_detect_result = None
 
-        with open("tilemap.json", 'r') as file:
-            self.data = json.load(file)
+        # Move camera and hand model initialization here for faster launch
+        self.cap = cv2.VideoCapture(0)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.cap.set(cv2.CAP_PROP_FPS, 60)
+        modelPath = "hand_landmarker.task"
+        base_options = python.BaseOptions(model_asset_path=modelPath)
+        options = vision.HandLandmarkerOptions(base_options=base_options,
+                                               num_hands=2)
+        self.detector = vision.HandLandmarker.create_from_options(options)
 
-        self.times = []
-        for d in self.data:
-            self.times.append(round(d.get("time"), 1))
-        print(self.times)
-
+        # Load song notes from selected song file
+        song_file = getattr(self.gameStateManager, 'selected_song', 'song1.json')
+        try:
+            with open(song_file, 'r') as file:
+                self.song_data = json.load(file)
+        except Exception:
+            with open("song1.json", 'r') as file:
+                self.song_data = json.load(file)
+        pitch_to_lane = {}
+        unique_pitches = sorted(set(note["pitch"] for note in self.song_data))
+        for idx, pitch in enumerate(unique_pitches):
+            pitch_to_lane[pitch] = (idx % 8) + 1
+        self.notes = []
+        for note in self.song_data:
+            lane = pitch_to_lane[note["pitch"]]
+            self.notes.append({
+                "time": note["time"],
+                "lane": lane,
+                "pitch": note["pitch"]
+            })
+        # --- Ensure a minimum gap between notes in the same lane ---
+        # Use add_gap_between_consecutive_notes to adjust note times
+        note_time_lane = [(n["time"], n["lane"]) for n in self.notes]
+        adjusted = add_gap_between_consecutive_notes(note_time_lane, min_gap=0.5)
+        # Rebuild self.notes with adjusted times, preserving pitch and lane
+        for i, (new_time, lane) in enumerate(adjusted):
+            self.notes[i]["time"] = new_time
+        print(self.notes)
         self.start_time = time.time()
         self.cur_note = 0
 
     def update_hand_overlay(self):
-        ret, frame = cap.read()
+        ret, frame = self.cap.read()
         if not ret:
             return
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image)
-        detect_result = detector.detect(mp_image)
+        detect_result = self.detector.detect(mp_image)
         height = frame.shape[0]
         width = frame.shape[1]
         mask = np.zeros((height, width), dtype=np.uint8)
@@ -303,12 +352,18 @@ class Piano:
                 fingers.add("LPi")
             else:
                 fingers.discard("LPi")
+        # Only allow hitting the tile if it is below the line and not already hit
         for finger in fingers:
-            for key in keys_to_press:
-                if finger == key[0]:
+            for key in list(keys_to_press):
+                tile = key[1]
+                if finger == key[0] and tile.can_be_hit() and not tile.hit:
                     keys_to_press.discard(key)
-                    key[1].set_color((0, 255, 0))
+                    tile.set_color((0, 255, 0))
+                    tile.hit = True
                     total_points += 1
+                    # Play MIDI note for this lane
+                    midi_player.note_on(tile.midi_note, MIDI_VELOCITY)
+                    pygame.time.set_timer(pygame.USEREVENT + tile.midi_note, MIDI_DURATION_MS)
                     break
 
     def run(self):
@@ -316,33 +371,32 @@ class Piano:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            # Turn off MIDI notes after duration
+            if event.type >= pygame.USEREVENT + 60 and event.type <= pygame.USEREVENT + 71:
+                midi_player.note_off(event.type - pygame.USEREVENT, MIDI_VELOCITY)
+                pygame.time.set_timer(event.type, 0)
         self.screen.fill((255, 255, 255))
         pygame.draw.line(self.screen, (255, 0, 0), (MARGIN, 0), (MARGIN, HEIGHT))
         pygame.draw.line(self.screen, (255, 0, 0), (WIDTH - MARGIN, 0), (WIDTH - MARGIN, HEIGHT))
         pygame.draw.line(self.screen, (255, 0, 0), (0, PRESS_THRESH), (WIDTH, PRESS_THRESH), 3)
         for i in range(8):
-            pygame.draw.line(self.screen, (0, 255, 0), (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, 0),
+            line_color = (0, 0, 255) if i == 4 else (0, 255, 0)  # 5th from left (i==4) is blue
+            pygame.draw.line(self.screen, line_color, (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, 0),
                              (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, HEIGHT))
-        put_new = False
-        cur_time = time.time()
-        if self.cur_note < len(self.times):
-            if round(cur_time - self.start_time, 1) == self.times[self.cur_note]:
-                print(round(cur_time - self.start_time, 1))
-                print("NEW TILE")
-                put_new = True
-                self.cur_note+=3
-            if put_new:
-                put_new = False
-                r = Rectangle()
+        cur_time = time.time() - self.start_time
+        if self.cur_note < len(self.notes):
+            note = self.notes[self.cur_note]
+            note_time = note["time"]
+            note_lane = note["lane"]
+            note_pitch = note["pitch"]
+            if cur_time >= note_time:
+                print(f"Spawning note at time {cur_time:.2f} (scheduled: {note_time:.2f}) pitch={note_pitch} lane={note_lane}")
+                r = Rectangle(lane=note_lane, midi_note=note_pitch)
                 rectangles.append(r)
-            for rect in rectangles:
-                rect.update()
-                rect.draw(self.screen)
-        else:
-            end_text = font.render("GAME OVER!!! RETURN TO START", True, (255, 0, 0))
-            end_rect = end_text.get_rect()
-            end_rect.center = (700, 50)
-            screen.blit(end_text, end_rect)
+                self.cur_note += 1
+        for rect in rectangles:
+            rect.update()
+            rect.draw(self.screen)
         text_surface = font.render(f"SCORE: {total_points}", True, (0, 0, 0))
         text_rect = text_surface.get_rect()
         text_rect.center = (60, 50)
@@ -362,6 +416,39 @@ class Piano:
         pygame.display.flip()
         self.frames += 1
 
+    def reset_song(self):
+        global rectangles, keys_to_press, total_points
+        # Reload song notes from the currently selected song file
+        song_file = getattr(self.gameStateManager, 'selected_song', 'song1.json')
+        try:
+            with open(song_file, 'r') as file:
+                self.song_data = json.load(file)
+        except Exception:
+            with open("song1.json", 'r') as file:
+                self.song_data = json.load(file)
+        pitch_to_lane = {}
+        unique_pitches = sorted(set(note["pitch"] for note in self.song_data))
+        for idx, pitch in enumerate(unique_pitches):
+            pitch_to_lane[pitch] = (idx % 8) + 1
+        self.notes = []
+        for note in self.song_data:
+            lane = pitch_to_lane[note["pitch"]]
+            self.notes.append({
+                "time": note["time"],
+                "lane": lane,
+                "pitch": note["pitch"]
+            })
+        # Ensure a minimum gap between notes in the same lane
+        note_time_lane = [(n["time"], n["lane"]) for n in self.notes]
+        adjusted = add_gap_between_consecutive_notes(note_time_lane, min_gap=0.5)
+        for i, (new_time, lane) in enumerate(adjusted):
+            self.notes[i]["time"] = new_time
+        self.start_time = time.time()
+        self.cur_note = 0
+        rectangles.clear()
+        keys_to_press.clear()
+        total_points = 0
+
 
 class Game:
     def __init__(self):
@@ -369,12 +456,14 @@ class Game:
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock()
         pygame.display.set_caption("Piano Tiles")
-
         self.gameStateManager = GameStateManager('start')
         self.start = Start(self.screen, self.gameStateManager)
         self.piano = Piano(self.screen, self.gameStateManager)
         self.credit = Credits(self.screen, self.gameStateManager)
-        self.states = {'piano': self.piano, 'start': self.start, 'credits': self.credit}
+        self.songpicker = SongPicker(self.screen, self.gameStateManager)
+        self.states = {'piano': self.piano, 'start': self.start, 'credits': self.credit, 'songpicker': self.songpicker}
+        # Make piano accessible from gameStateManager for reset
+        self.gameStateManager.piano = self.piano
 
     def run(self):
         frames = 0
@@ -435,30 +524,87 @@ class Start:
         self.logo_image = pygame.transform.scale(self.logo_image,
                                                  (self.logo_image.get_width() * 2,
                                                   self.logo_image.get_height() * 2))
+        # SONGS button in the center, moved 100px down and 50px less to the right
+        self.songs_button = Button(900, 750, font.render("SONGS", True, (0,0,0)))
 
     def run(self):
-        # print("START RUNNING")
         self.display.blit(self.background, (0, 0))
         self.display.blit(self.logo_image, (800, 100))
         self.start_button.draw(self.display)
         self.credits_button.draw(self.display)
         self.quit_button.draw(self.display)
-
+        self.songs_button.draw(self.display)
+        if self.songs_button.is_clicked():
+            self.gameStateManager.set_state('songpicker')
+            self.songs_button.reset()
         if self.start_button.is_clicked():
+            # Reset the piano song state before switching to piano
+            if hasattr(self.gameStateManager, 'piano'):
+                self.gameStateManager.piano.reset_song()
             self.gameStateManager.set_state('piano')
             self.start_button.reset()
         if self.quit_button.is_clicked():
             pygame.quit()
+            sys.exit()
         if self.credits_button.is_clicked():
             self.gameStateManager.set_state('credits')
             self.credits_button.reset()
+        pygame.display.update()
 
+
+class SongPicker:
+    def __init__(self, display, gameStateManager):
+        self.display = display
+        self.gameStateManager = gameStateManager
+        self.background = pygame.image.load("piano3.jpg")
+        self.background = pygame.transform.scale(self.background, (WIDTH, HEIGHT))
+        # Explicitly create each button with a custom name and label, styled as nice buttons
+        self.song1_button = Button(WIDTH//2 - 200, 200 + 0*80, font.render("song1", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song2_button = Button(WIDTH//2 - 200, 200 + 1*80, font.render("song2", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song3_button = Button(WIDTH//2 - 200, 200 + 2*80, font.render("song3", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song4_button = Button(WIDTH//2 - 200, 200 + 3*80, font.render("song4", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song5_button = Button(WIDTH//2 - 200, 200 + 4*80, font.render("song5", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song6_button = Button(WIDTH//2 - 200, 200 + 5*80, font.render("song6", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song7_button = Button(WIDTH//2 - 200, 200 + 6*80, font.render("song7", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song8_button = Button(WIDTH//2 - 200, 200 + 7*80, font.render("song8", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song9_button = Button(WIDTH//2 - 200, 200 + 8*80, font.render("song9", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song10_button = Button(WIDTH//2 - 200, 200 + 9*80, font.render("song10", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song_buttons = [
+            self.song1_button,
+            self.song2_button,
+            self.song3_button,
+            self.song4_button,
+            self.song5_button,
+            self.song6_button,
+            self.song7_button,
+            self.song8_button,
+            self.song9_button,
+            self.song10_button
+        ]
+        self.back_image = pygame.image.load("back.png").convert_alpha()
+        self.back_button = Button(50, 900, pygame.transform.scale(self.back_image, (self.back_image.get_width()//4, self.back_image.get_height()//4)))
+
+    def run(self):
+        self.display.blit(self.background, (0, 0))
+        title = font.render("Select a Song", True, (0,0,0))
+        self.display.blit(title, (WIDTH//2 - title.get_width()//2, 100))
+        for idx, btn in enumerate(self.song_buttons):
+            btn.draw(self.display)
+            if btn.is_clicked():
+                self.gameStateManager.selected_song = f"song{idx+1}.json"
+                btn.reset()
+                self.gameStateManager.set_state('start')
+        self.back_button.draw(self.display)
+        if self.back_button.is_clicked():
+            self.gameStateManager.set_state('start')
+            self.back_button.reset()
         pygame.display.update()
 
 
 class GameStateManager:
     def __init__(self, currentState):
         self.currentState = currentState
+        self.selected_song = "song1.json"  # Always default to song1.json
 
     def set_state(self, newState):
         self.currentState = newState
@@ -466,8 +612,27 @@ class GameStateManager:
     def get_state(self):
         return self.currentState
 
+    def get_selected_song(self):
+        # Return the currently selected song, defaulting to song1.json only if not set
+        return self.selected_song if hasattr(self, 'selected_song') and self.selected_song else 'song1.json'
+
+
+# --- Add this function to preprocess notes and add a gap between consecutive notes in the same lane ---
+def add_gap_between_consecutive_notes(notes, min_gap=0.5):
+    # notes: list of (time, lane)
+    notes_sorted = sorted(notes, key=lambda x: x[0])
+    last_time_per_lane = {}
+    adjusted_notes = []
+    for time, lane in notes_sorted:
+        if lane in last_time_per_lane:
+            prev_time = last_time_per_lane[lane]
+            if time - prev_time < min_gap:
+                time = prev_time + min_gap
+        last_time_per_lane[lane] = time
+        adjusted_notes.append((time, lane))
+    return adjusted_notes
+
 
 if __name__ == '__main__':
     game = Game()
     game.run()
-
