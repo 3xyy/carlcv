@@ -325,6 +325,7 @@ class Piano:
         for i in range(8):
             pygame.draw.line(self.screen, (0, 255, 0), (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, 0),
                              (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, HEIGHT))
+        pygame.draw.line(self.screen, (255, 0, 0), (MARGIN, 0), (MARGIN, HEIGHT))
         put_new = False
         cur_time = time.time()
         if self.total_rects < len(self.times) / 3:
