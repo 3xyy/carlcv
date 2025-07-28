@@ -22,7 +22,7 @@ TILE_SPEED = 10
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.DOUBLEBUF | pygame.SCALED)
 pygame.display.set_caption("Testing")
 pygame.init()
-
+pygame.mixer.music.load("Bells.mid")
 modelPath = "hand_landmarker.task"
 base_options = python.BaseOptions(model_asset_path=modelPath)
 options = vision.HandLandmarkerOptions(base_options=base_options,
@@ -172,7 +172,7 @@ class Piano:
         print(self.times)
 
         self.start_time = time.time()
-        self.start_time -= 3
+        self.start_time -= 2.8
         self.cur_note = 0
         self.total_rects = 0
 
@@ -451,6 +451,8 @@ class Start:
 
         if self.start_button.is_clicked():
             self.gameStateManager.set_state('piano')
+            pygame.mixer.music.play()
+            print('playing')
             self.start_button.reset()
         if self.quit_button.is_clicked():
             pygame.quit()
@@ -475,4 +477,3 @@ class GameStateManager:
 if __name__ == '__main__':
     game = Game()
     game.run()
-
