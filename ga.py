@@ -163,8 +163,8 @@ class Piano:
         options = vision.HandLandmarkerOptions(base_options=base_options,
                                                num_hands=2)
         self.detector = vision.HandLandmarker.create_from_options(options)
-        self.note_sounds = {}  # Will be loaded in reset_song()
-        self.reset_song()  # Load the default song and sounds
+        self.note_sounds = {}
+        self.reset_song()
 
     def update_hand_overlay(self):
         ret, frame = self.cap.read()
@@ -465,7 +465,6 @@ class Piano:
         total_points = 0
         self.total_notes = len(self.notes)
         self.hit_notes = 0
-        # Load note sounds for the current song
         self.note_sounds = {}
         for note_name in unique_notes:
             sound_path = os.path.join("pianotes", note_name)
@@ -727,11 +726,10 @@ class SongPicker:
 class GameStateManager:
     def __init__(self, currentState):
         self.currentState = currentState
-        self.selected_song = os.path.join("songs", "song1.json") # default value
+        self.selected_song = os.path.join("songs", "song1.json")
 
     def set_state(self, newState):
         self.currentState = newState
-        # Always reset the song when entering piano state
         if newState == 'piano' and hasattr(self, 'piano'):
             self.piano.reset_song()
 
