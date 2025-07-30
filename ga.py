@@ -346,18 +346,23 @@ class Piano:
             "Right Pointer", "Right Middle", "Right Ring", "Right Pinky"
         ]
         label_font = pygame.font.SysFont("Arial", 20, bold=True)
+        left_color = (180, 120, 255)  # light purple
+        right_color = (255, 140, 0)   # orange
         for i in range(8):
             lane_x = int(MARGIN + i * (WIDTH - 2 * MARGIN) / 8)
             label = lane_finger_names[i]
-            label_surface = label_font.render(label, True, (0, 40, 225))
+            color = left_color if i < 4 else right_color
+            label_surface = label_font.render(label, True, color)
             label_rect = label_surface.get_rect()
             label_rect.center = (lane_x + ((WIDTH - 2 * MARGIN) / 16), 30)
             self.screen.blit(label_surface, label_rect)
+        # Move live score calculation and drawing after rectangles are updated
+        self.hit_notes = sum(1 for rect in rectangles if rect.hit)
         score_percent = (self.hit_notes / self.total_notes) * 100 if self.total_notes > 0 else 0
         text_surface = font.render(f"SCORE: {score_percent:.1f}%", True, (0, 0, 0))
         text_rect = text_surface.get_rect()
         text_rect.center = (60, 50)
-        screen.blit(text_surface, text_rect)
+        self.screen.blit(text_surface, text_rect)
         self.update_hand_overlay()
         frame = self.last_frame
         detect_result = self.last_detect_result
@@ -398,7 +403,6 @@ class Piano:
                 hit_text_str += f"{hit_note}"
         else:
             hit_text_str += "None"
-        hit_text_str += " --"
         small_font = pygame.font.SysFont("Arial", 18)
         hit_text = small_font.render(hit_text_str, True, (80, 80, 80))
         self.screen.blit(hit_text, (10, 10))
