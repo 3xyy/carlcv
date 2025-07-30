@@ -19,8 +19,6 @@ TILE_SPEED = 10
 screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.DOUBLEBUF | pygame.SCALED)
 pygame.init()
 pygame.mixer.init()
-MIDI_VELOCITY = 127
-MIDI_DURATION_MS = 200
 
 NON_PINKY_DIST = 0.3
 PINKY_DIST = 0.25
