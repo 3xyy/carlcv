@@ -80,7 +80,7 @@ class Button:
         self.clicked = False
 
 class Rectangle:
-    def __init__(self, lane=None, note_file=None):
+    def __init__(self, lane=None, note_file=None, note_time=None):
         self.w = (WIDTH - 2 * MARGIN) / 8
         self.h = self.w * 2
         self.color = (0, 0, 0)
@@ -92,6 +92,7 @@ class Rectangle:
         self.y = int(-1 * self.h)
         self.last_update_time = pygame.time.get_ticks()
         self.note_file = note_file
+        self.note_time = note_time  # Store the timing for this note instance
         self.hit = False
 
     def update(self):
@@ -165,6 +166,8 @@ class Piano:
         self.detector = vision.HandLandmarker.create_from_options(options)
         self.note_sounds = {}
         self.reset_song()
+        self.last_hit_info = None  # (time, note)
+        self.last_hit_time = None
 
     def update_hand_overlay(self):
         ret, frame = self.cap.read()
@@ -304,6 +307,9 @@ class Piano:
                     note_name = tile.note_file
                     if note_name in self.note_sounds:
                         self.note_sounds[note_name].play()
+                    # Track last hit info
+                    self.last_hit_info = (time.time() - self.start_time, note_name)
+                    self.last_hit_time = time.time()
                     break
 
     def run(self):
@@ -312,14 +318,15 @@ class Piano:
             if event.type == pygame.QUIT:
                 running = False
         self.screen.fill((255, 255, 255))
-        pygame.draw.line(self.screen, (255, 0, 0), (MARGIN, 0), (MARGIN, HEIGHT))
+        # Draw left margin line in red
+        pygame.draw.line(self.screen, (255, 0, 0), (MARGIN, 0), (MARGIN, HEIGHT), 4)
+        # Draw right margin line (keep as is)
         pygame.draw.line(self.screen, (255, 0, 0), (WIDTH - MARGIN, 0), (WIDTH - MARGIN, HEIGHT))
         pygame.draw.line(self.screen, (255, 0, 0), (0, PRESS_THRESH), (WIDTH, PRESS_THRESH), 3)
         for i in range(8):
             line_color = (0, 0, 255) if i == 4 else (0, 255, 0)
             pygame.draw.line(self.screen, line_color, (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, 0),
                              (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, HEIGHT))
-        pygame.draw.line(self.screen, (255, 0, 0), (MARGIN, 0), (MARGIN, HEIGHT))
         cur_time = time.time() - self.start_time
         if self.cur_note < len(self.notes):
             note = self.notes[self.cur_note]
@@ -327,13 +334,25 @@ class Piano:
             note_lane = note["lane"]
             note_pitch = note["note"]
             if cur_time >= note_time:
-                r = Rectangle(lane=note_lane, note_file=note_pitch)
+                r = Rectangle(lane=note_lane, note_file=note_pitch, note_time=note_time)
                 rectangles.append(r)
                 self.cur_note += 1
         for rect in rectangles:
             rect.update()
             rect.draw(self.screen)
-        self.hit_notes = sum(1 for rect in rectangles if rect.hit)
+        # Draw finger names at the top of each lane (overlay on tiles)
+        lane_finger_names = [
+            "Left Pinky", "Left Ring", "Left Middle", "Left Pointer",
+            "Right Pointer", "Right Middle", "Right Ring", "Right Pinky"
+        ]
+        label_font = pygame.font.SysFont("Arial", 20, bold=True)
+        for i in range(8):
+            lane_x = int(MARGIN + i * (WIDTH - 2 * MARGIN) / 8)
+            label = lane_finger_names[i]
+            label_surface = label_font.render(label, True, (0, 40, 225))
+            label_rect = label_surface.get_rect()
+            label_rect.center = (lane_x + ((WIDTH - 2 * MARGIN) / 16), 30)
+            self.screen.blit(label_surface, label_rect)
         score_percent = (self.hit_notes / self.total_notes) * 100 if self.total_notes > 0 else 0
         text_surface = font.render(f"SCORE: {score_percent:.1f}%", True, (0, 0, 0))
         text_rect = text_surface.get_rect()
@@ -369,6 +388,20 @@ class Piano:
                     self.gameStateManager.game.set_win(score_percent)
                 else:
                     self.gameStateManager.game.set_game_over(score_percent)
+        # Show last hit info in top left, always visible, with -- around it and timing from json
+        hit_text_str = "-- Last Hit: "
+        if self.last_hit_info:
+            note_time, hit_note = self.last_hit_info
+            if note_time is not None:
+                hit_text_str += f"{hit_note} @ {note_time:.2f}s"
+            else:
+                hit_text_str += f"{hit_note}"
+        else:
+            hit_text_str += "None"
+        hit_text_str += " --"
+        small_font = pygame.font.SysFont("Arial", 18)
+        hit_text = small_font.render(hit_text_str, True, (80, 80, 80))
+        self.screen.blit(hit_text, (10, 10))
         pygame.display.flip()
         self.frames += 1
 
@@ -418,6 +451,9 @@ class Piano:
             note_name = rect.note_file
             if note_name in self.note_sounds:
                 self.note_sounds[note_name].play()
+            # Track last hit info with correct timing from the note object
+            self.last_hit_info = (rect.note_time, note_name)
+            self.last_hit_time = time.time()
 
     def reset_song(self):
         global rectangles, keys_to_press, total_points
@@ -532,6 +568,7 @@ class WinScreen:
         self.back_image = pygame.image.load(os.path.join("images", "back.png")).convert_alpha()
         self.back_button = Button(100, 800, pygame.transform.scale(self.back_image, (self.back_image.get_width() // 2, self.back_image.get_height() // 2)))
         self.start_time = None
+        time.sleep(0.5)
         self.win_notes = [
             "C4.mp3", "E4.mp3", "G4.mp3", "C5.mp3", "B4.mp3", "G4.mp3", "A4.mp3", "F4.mp3"
         ]
@@ -685,14 +722,11 @@ class SongPicker:
         self.background = pygame.transform.scale(self.background, (WIDTH, HEIGHT))
         self.song1_button = Button(WIDTH//2 - 200, 200 + 0*80, font.render("Happy Birthday", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
         self.song2_button = Button(WIDTH//2 - 200, 200 + 1*80, font.render("???", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
-        self.song3_button = Button(WIDTH//2 - 200, 200 + 2*80, font.render("Mii", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
-        self.song4_button = Button(WIDTH//2 - 200, 200 + 3*80, font.render("Tetris", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
-        self.song5_button = Button(WIDTH//2 - 200, 200 + 4*80, font.render("Megalovania", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
-        self.song6_button = Button(WIDTH//2 - 200, 200 + 5*80, font.render("Super Mario Bros", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
-        self.song7_button = Button(WIDTH//2 - 200, 200 + 6*80, font.render("Twinkle Twinkle", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
-        self.song8_button = Button(WIDTH//2 - 200, 200 + 7*80, font.render("Mary Had a Little Lamb", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
-        self.song9_button = Button(WIDTH//2 - 200, 200 + 8*80, font.render("Jingle Bells", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
-        self.song10_button = Button(WIDTH//2 - 200, 200 + 9*80, font.render("Let It Go", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song3_button = Button(WIDTH//2 - 200, 200 + 2*80, font.render("Tetris", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song4_button = Button(WIDTH//2 - 200, 200 + 3*80, font.render("Megalovania", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song5_button = Button(WIDTH//2 - 200, 200 + 4*80, font.render("Twinkle Twinkle", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song6_button = Button(WIDTH//2 - 200, 200 + 5*80, font.render("Mary Had a Little Lamb", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
+        self.song7_button = Button(WIDTH//2 - 200, 200 + 6*80, font.render("Jingle Bells", True, (0,0,80)), width=400, height=60, bg_color=(255,255,255), border_color=(0,0,120))
         self.song_buttons = [
             self.song1_button,
             self.song2_button,
@@ -700,10 +734,7 @@ class SongPicker:
             self.song4_button,
             self.song5_button,
             self.song6_button,
-            self.song7_button,
-            self.song8_button,
-            self.song9_button,
-            self.song10_button
+            self.song7_button
         ]
         self.back_image = pygame.image.load(os.path.join("images", "back.png")).convert_alpha()
         self.back_button = Button(50, 900, pygame.transform.scale(self.back_image, (self.back_image.get_width()//4, self.back_image.get_height()//4)))
