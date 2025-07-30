@@ -687,8 +687,8 @@ class Start:
                                                                     self.quit_image.get_height() / 2)))
         self.logo_image = pygame.image.load(os.path.join("images", "LOGO.png")).convert_alpha()
         self.logo_image = pygame.transform.scale(self.logo_image,
-                                                 (self.logo_image.get_width() * 2,
-                                                  self.logo_image.get_height() * 2))
+                                                 (self.logo_image.get_width() * 8,
+                                                  self.logo_image.get_height() * 8))
         self.songs_button = Button(900, 750, font.render("SONGS", True, (0,0,0)))
 
     def run(self):
