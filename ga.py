@@ -65,7 +65,6 @@ class Button:
             if pygame.mouse.get_pressed()[0] == 1 and not getattr(self, '_was_down', False):
                 self.clicked = True
                 self._was_down = True
-                print("CLICKED")
             elif pygame.mouse.get_pressed()[0] == 0:
                 self._was_down = False
         else:
@@ -164,38 +163,8 @@ class Piano:
         options = vision.HandLandmarkerOptions(base_options=base_options,
                                                num_hands=2)
         self.detector = vision.HandLandmarker.create_from_options(options)
-        song_file = getattr(self.gameStateManager, 'selected_song', os.path.join("songs", 'song1.json'))
-        try:
-            with open(song_file, 'r') as file:
-                self.song_data = json.load(file)
-        except Exception:
-            with open(os.path.join("songs", "song1.json"), 'r') as file:
-                self.song_data = json.load(file)
-        pitch_to_lane = {}
-        unique_notes = sorted(set(note["note"] for note in self.song_data))
-        for idx, note_name in enumerate(unique_notes):
-            pitch_to_lane[note_name] = (idx % 8) + 1
-        self.notes = []
-        for note in self.song_data:
-            lane = pitch_to_lane[note["note"]]
-            self.notes.append({
-                "time": note["time"],
-                "lane": lane,
-                "note": note["note"]
-            })
-        note_time_lane = [(n["time"], n["lane"]) for n in self.notes]
-        adjusted = add_gap_between_consecutive_notes(note_time_lane, min_gap=0.5)
-        for i, (new_time, lane) in enumerate(adjusted):
-            self.notes[i]["time"] = new_time
-        print(self.notes)
-        self.start_time = time.time()
-        self.cur_note = 0
-        self.note_sounds = {}
-        for note_name in unique_notes:
-            try:
-                self.note_sounds[note_name] = pygame.mixer.Sound(os.path.join("pianotes", note_name))
-            except Exception as e:
-                print(f"Could not load sound for {note_name}: {e}")
+        self.note_sounds = {}  # Will be loaded in reset_song()
+        self.reset_song()  # Load the default song and sounds
 
     def update_hand_overlay(self):
         ret, frame = self.cap.read()
@@ -451,12 +420,12 @@ class Piano:
 
     def reset_song(self):
         global rectangles, keys_to_press, total_points
-        song_file = getattr(self.gameStateManager, 'selected_song', os.path.join("songs", 'song1.json'))
+        song_file = self.gameStateManager.get_selected_song()
         try:
             with open(song_file, 'r') as file:
                 self.song_data = json.load(file)
         except Exception:
-            with open(os.path.join("songs", "song1.json"), 'r') as file:
+            with open(self.gameStateManager.get_selected_song(), 'r') as file:
                 self.song_data = json.load(file)
         valid_notes = [note for note in self.song_data if isinstance(note, dict) and 'note' in note and 'time' in note]
         if not valid_notes:
@@ -464,6 +433,7 @@ class Piano:
             self.notes = []
             self.total_notes = 0
             self.hit_notes = 0
+            self.note_sounds = {}
             return
         pitch_to_lane = {}
         unique_notes = sorted(set(note["note"] for note in valid_notes))
@@ -495,6 +465,16 @@ class Piano:
         total_points = 0
         self.total_notes = len(self.notes)
         self.hit_notes = 0
+        # Load note sounds for the current song
+        self.note_sounds = {}
+        for note_name in unique_notes:
+            sound_path = os.path.join("pianotes", note_name)
+            if not os.path.isfile(sound_path):
+                print(f"Missing sound file for note: {note_name} at {sound_path}")
+            try:
+                self.note_sounds[note_name] = pygame.mixer.Sound(sound_path)
+            except Exception as e:
+                print(f"Could not load sound for {note_name}: {e}")
 
 class GameOver:
     def __init__(self, display, gameStateManager, score_percent):
@@ -735,7 +715,7 @@ class SongPicker:
         for idx, btn in enumerate(self.song_buttons):
             btn.draw(self.display)
             if btn.is_clicked():
-                self.gameStateManager.selected_song = os.path.join("songs", f"song{idx+1}.json")
+                self.gameStateManager.set_selected_song(os.path.join("songs", f"song{idx+1}.json"))
                 btn.reset()
                 self.gameStateManager.set_state('start')
         self.back_button.draw(self.display)
@@ -747,16 +727,22 @@ class SongPicker:
 class GameStateManager:
     def __init__(self, currentState):
         self.currentState = currentState
-        self.selected_song = os.path.join("songs", "song1.json")
+        self.selected_song = os.path.join("songs", "song1.json") # default value
 
     def set_state(self, newState):
         self.currentState = newState
+        # Always reset the song when entering piano state
+        if newState == 'piano' and hasattr(self, 'piano'):
+            self.piano.reset_song()
 
     def get_state(self):
         return self.currentState
 
     def get_selected_song(self):
-        return self.selected_song if hasattr(self, 'selected_song') and self.selected_song else os.path.join("songs", 'song1.json')
+        return self.selected_song if hasattr(self, 'selected_song') and self.selected_song else self.selected_song
+
+    def set_selected_song(self, song_path):
+        self.selected_song = song_path
 
 def add_gap_between_consecutive_notes(notes, min_gap=0.5):
     notes_sorted = sorted(notes, key=lambda x: x[0])
