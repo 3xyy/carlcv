@@ -319,6 +319,7 @@ class Piano:
             line_color = (0, 0, 255) if i == 4 else (0, 255, 0)
             pygame.draw.line(self.screen, line_color, (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, 0),
                              (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, HEIGHT))
+        pygame.draw.line(self.screen, (255, 0, 0), (MARGIN, 0), (MARGIN, HEIGHT))
         cur_time = time.time() - self.start_time
         if self.cur_note < len(self.notes):
             note = self.notes[self.cur_note]
