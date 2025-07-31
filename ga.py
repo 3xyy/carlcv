@@ -90,7 +90,7 @@ class Rectangle:
         self.y = int(-1 * self.h)
         self.last_update_time = pygame.time.get_ticks()
         self.note_file = note_file
-        self.note_time = note_time  # Store the timing for this note instance
+        self.note_time = note_time
         self.hit = False
 
     def update(self):
@@ -164,7 +164,7 @@ class Piano:
         self.detector = vision.HandLandmarker.create_from_options(options)
         self.note_sounds = {}
         self.reset_song()
-        self.last_hit_info = None  # (time, note)
+        self.last_hit_info = None
         self.last_hit_time = None
 
     def update_hand_overlay(self):
@@ -305,7 +305,6 @@ class Piano:
                     note_name = tile.note_file
                     if note_name in self.note_sounds:
                         self.note_sounds[note_name].play()
-                    # Track last hit info
                     self.last_hit_info = (time.time() - self.start_time, note_name)
                     self.last_hit_time = time.time()
                     break
@@ -316,11 +315,9 @@ class Piano:
             if event.type == pygame.QUIT:
                 running = False
         self.screen.fill((255, 255, 255))
-        # Draw left margin line in red
         pygame.draw.line(self.screen, (255, 0, 0), (MARGIN, 0), (MARGIN, HEIGHT), 4)
-        # Draw right margin line (keep as is)
         pygame.draw.line(self.screen, (255, 0, 0), (WIDTH - MARGIN, 0), (WIDTH - MARGIN, HEIGHT))
-        pygame.draw.line(self.screen, (255, 0, 0), (0, PRESS_THRESH), (WIDTH, PRESS_THRESH), 3)
+        pygame.draw.line(self.screen, (255, 0, 0), (0, PRESS_THRESH), (WIDTH, PRESS_THRESH), 6)
         for i in range(8):
             line_color = (0, 0, 255) if i == 4 else (0, 255, 0)
             pygame.draw.line(self.screen, line_color, (MARGIN + i * (WIDTH - 2 * MARGIN) / 8, 0),
@@ -338,14 +335,13 @@ class Piano:
         for rect in rectangles:
             rect.update()
             rect.draw(self.screen)
-        # Draw finger names at the top of each lane (overlay on tiles)
         lane_finger_names = [
             "Left Pinky", "Left Ring", "Left Middle", "Left Pointer",
             "Right Pointer", "Right Middle", "Right Ring", "Right Pinky"
         ]
         label_font = pygame.font.SysFont("Arial", 20, bold=True)
-        left_color = (180, 120, 255)  # light purple
-        right_color = (255, 140, 0)   # orange
+        left_color = (180, 120, 255) 
+        right_color = (255, 140, 0)  
         for i in range(8):
             lane_x = int(MARGIN + i * (WIDTH - 2 * MARGIN) / 8)
             label = lane_finger_names[i]
@@ -354,7 +350,6 @@ class Piano:
             label_rect = label_surface.get_rect()
             label_rect.center = (lane_x + ((WIDTH - 2 * MARGIN) / 16), 30)
             self.screen.blit(label_surface, label_rect)
-        # Move live score calculation and drawing after rectangles are updated
         self.hit_notes = sum(1 for rect in rectangles if rect.hit)
         score_percent = (self.hit_notes / self.total_notes) * 100 if self.total_notes > 0 else 0
         text_surface = font.render(f"SCORE: {score_percent:.1f}%", True, (0, 0, 0))
@@ -391,8 +386,7 @@ class Piano:
                     self.gameStateManager.game.set_win(score_percent)
                 else:
                     self.gameStateManager.game.set_game_over(score_percent)
-        # Show last hit info in top left, always visible, with -- around it and timing from json
-        hit_text_str = "-- Last Hit: "
+        hit_text_str = "Last: "
         if self.last_hit_info:
             note_time, hit_note = self.last_hit_info
             if note_time is not None:
@@ -453,7 +447,6 @@ class Piano:
             note_name = rect.note_file
             if note_name in self.note_sounds:
                 self.note_sounds[note_name].play()
-            # Track last hit info with correct timing from the note object
             self.last_hit_info = (rect.note_time, note_name)
             self.last_hit_time = time.time()
 
