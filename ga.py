@@ -315,22 +315,18 @@ class Piano:
             if event.type == pygame.QUIT:
                 running = False
         self.screen.fill((255, 255, 255))
-        # Draw left, middle, and right margin lines in red with thickness 5
         pygame.draw.line(self.screen, (255, 0, 0), (MARGIN, 0), (MARGIN, HEIGHT), 5)
         pygame.draw.line(self.screen, (255, 0, 0), (WIDTH // 2, 0), (WIDTH // 2, HEIGHT), 5)
         pygame.draw.line(self.screen, (255, 0, 0), (WIDTH - MARGIN, 0), (WIDTH - MARGIN, HEIGHT), 5)
-        # Draw the press threshold line
         pygame.draw.line(self.screen, (255, 0, 0), (0, PRESS_THRESH), (WIDTH, PRESS_THRESH), 6)
-        # Draw lane lines (not the margins or middle)
         for i in range(8):
             lane_x = int(MARGIN + i * (WIDTH - 2 * MARGIN) / 8)
             if lane_x in [MARGIN, WIDTH // 2, WIDTH - MARGIN]:
-                continue  # Already drawn as red
-            # Set custom colors for left hand (2,3,4) and right hand (6,7,8)
-            if i in [1,2,3]:  # lanes 2,3,4 (index 1,2,3)
-                line_color = (180, 120, 255)  # purple
-            elif i in [5,6,7]:  # lanes 6,7,8 (index 5,6,7)
-                line_color = (255, 140, 0)   # orange
+                continue
+            if i in [1,2,3]:
+                line_color = (180, 120, 255)
+            elif i in [5,6,7]:
+                line_color = (255, 140, 0)
             else:
                 line_color = (0, 255, 0)
             pygame.draw.line(self.screen, line_color, (lane_x, 0), (lane_x, HEIGHT))
@@ -364,7 +360,6 @@ class Piano:
             self.screen.blit(label_surface, label_rect)
         self.hit_notes = sum(1 for rect in rectangles if rect.hit)
         score_percent = (self.hit_notes / self.total_notes) * 100 if self.total_notes > 0 else 0
-        # Make SCORE: font size smaller
         small_score_font = pygame.font.SysFont("Arial", 16)
         text_surface = small_score_font.render(f"SCORE: {score_percent:.1f}%", True, (0, 0, 0))
         text_rect = text_surface.get_rect()
